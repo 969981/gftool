@@ -21,6 +21,9 @@ namespace TrinityModLoader.UI
             CheckOnClick = false;
         }
 
+        // Mod packs are runtime data, never designer-generated form state.
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public ModPack? ModPack
         {
             get => _modPack;
