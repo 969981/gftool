@@ -11,6 +11,7 @@ GFTool 由五个 Windows 工具、共享的 `GFTool.Core`、渲染组件和两�
 | [FEATURES.md](FEATURES.md) | 五个软件现有功能、文件格式、已实现/未实现范围 | 使用者、需求整理 |
 | [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | 目录树、主要项目、重要源码入口、子模块 | 初次阅读源码者 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 代码依赖、TRPFS/TRPFD、SQLite 查询与哈希解析链路 | 开发和逆向研究 |
+| [DOTNET10_SLNX_MIGRATION.md](DOTNET10_SLNX_MIGRATION.md) | .NET 10 目标框架、SDK 版本、SLNX 迁移及兼容性说明 | 迁移维护 |
 | [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) | 本地从零编译、SQLite 生成、整合打包、Actions/Release | 开发、CI 维护 |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | 数据库、RomFS、Oodle、子模块、构建/发布排错 | 测试和维护 |
 
@@ -25,8 +26,8 @@ GFTool 由五个 Windows 工具、共享的 `GFTool.Core`、渲染组件和两�
 ```powershell
 git clone --branch develop --recurse-submodules https://github.com/969981/gftool.git
 cd gftool
-dotnet restore TrinityModLoader.sln
-dotnet build TrinityModLoader.sln -c Release --no-restore
+dotnet restore TrinityModLoader.slnx
+dotnet build TrinityModLoader.slnx -c Release --no-restore
 ```
 
 构建出应用并不等于已经生成 SQLite。若要完整复现 **develop 五合一发布包**，还需 Python 3.12 运行 `tools/PokeDocsIndexer/build.py`，将数据库放到 `GFTool-Windows-x64/Data/`，并对五个程序分别 `dotnet publish`。详见 [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md)。

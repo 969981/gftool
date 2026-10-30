@@ -4,10 +4,14 @@
 
 ## 1. 所需环境
 
+**当前基线为 .NET 10 LTS + `TrinityModLoader.slnx`。** Windows SDK 使用 `10.0.x`，仓库根目录 `global.json` 设定 `10.0.100` 并允许同一主版本中较新的 feature band。`main` 的升级情况以其自身分支为准；这里说明的是 `develop`。
+
+官方迁移命令：`dotnet sln TrinityModLoader.sln migrate`。本分支已移除旧 `.sln`，不需要也不应再次运行迁移。
+
 | 工具 | 用途 |
 | --- | --- |
 | Windows x64 + PowerShell | 本地运行 WinForms、生成便携包 |
-| .NET 8 SDK | 构建 `net8.0` / `net8.0-windows` 项目 |
+| .NET 10 SDK | 构建 `net10.0` / `net10.0-windows` 项目 |
 | Git | 克隆仓库、检出子模块、获取版本 SHA |
 | Python 3.12 | 运行 `tools/PokeDocsIndexer/build.py` |
 | 可选：GitHub CLI `gh` | 手动检查、触发/查看工作流和 Release |
@@ -70,9 +74,10 @@ print("source revision:", db.execute("SELECT value FROM metadata WHERE key='poke
 ## 4. 编译完整解决方案
 
 ```powershell
-dotnet restore TrinityModLoader.sln
-dotnet build TrinityModLoader.sln -c Release --no-restore
-dotnet test TrinityModLoader.sln -c Release --no-build --verbosity normal
+dotnet sln TrinityModLoader.slnx list
+dotnet restore TrinityModLoader.slnx
+dotnet build TrinityModLoader.slnx -c Release --no-restore
+dotnet test TrinityModLoader.slnx -c Release --no-build --verbosity normal
 ```
 
 注意检查命令返回值与错误信息；`dotnet test` 执行成功**不代表**已经覆盖每个 GUI/提取行为，项目不一定具备完整的自动化测试套件。

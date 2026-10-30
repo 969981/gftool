@@ -47,7 +47,8 @@ gftool/
 ├── tools/
 │   └── PokeDocsIndexer/build.py    # TXT/FBS → SQLite（Python 标准库）
 ├── docs/                            # 本目录及现有技术说明
-├── TrinityModLoader.sln             # 解决方案入口
+├── TrinityModLoader.slnx            # .NET 10 XML solution
+├── global.json                      # .NET 10 SDK version policy
 ├── .gitmodules
 ├── .gitignore
 └── LICENSE
@@ -55,7 +56,7 @@ gftool/
 
 ## 1. 五个 EXE 与共享库
 
-`TrinityModLoader.sln` 同时包含以下 Windows 程序：
+`TrinityModLoader.slnx` 同时包含以下 Windows 程序：
 
 - `TrinityModLoader`
 - `TrinityFileExplorer`

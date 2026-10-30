@@ -55,19 +55,30 @@ jobs:
           '@ | python - $db
           if ($LASTEXITCODE -ne 0) { throw 'SQLite semantic smoke test failed' }
 
-      - name: Install .NET 8
+      - name: Install .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
+      - name: Validate migrated SLNX solution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet --version
+          $projects = @(dotnet sln TrinityModLoader.slnx list)
+          if ($LASTEXITCODE -ne 0) { throw 'SLNX is invalid' }
+          $count = @($projects | Where-Object { $_ -match '\.csproj$' }).Count
+          if ($count -ne 11) { throw "Expected 11 solution projects, found $count" }
+          if (Test-Path TrinityModLoader.sln) { throw 'Legacy SLN must be removed' }
+          Write-Host 'Validated migrated SLNX with 11 projects'
       - name: Restore build and test all tools
         shell: pwsh
         run: |
-          dotnet restore TrinityModLoader.sln
+          dotnet restore TrinityModLoader.slnx
           if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
-          dotnet build TrinityModLoader.sln -c Release --no-restore
+          dotnet build TrinityModLoader.slnx -c Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-          dotnet test TrinityModLoader.sln -c Release --no-build --verbosity minimal
+          dotnet test TrinityModLoader.slnx -c Release --no-build --verbosity minimal
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
 
       - name: Publish five self-contained Windows x64 tools

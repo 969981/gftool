@@ -1,0 +1,15 @@
+<Solution>
+  <Project Path="GFTool.Core/GFTool.Core.csproj" />
+  <Project Path="TrinityModLoader/TrinityModLoader.csproj" />
+  <Project Path="TrinitySceneView/TrinitySceneView.csproj" />
+  <Project Path="TrinityFileExplorer/TrinityFileExplorer.csproj" />
+  <Project Path="GFTool.Renderer/GFTool.Renderer.csproj" />
+  <Project Path="TrinityModelViewer/TrinityModelViewer.csproj" />
+  <Project Path="GFTool.RenderControl_WinForms/GFTool.RenderControl_WinForms.csproj" />
+  <Project Path="TrinityUikitEditor/TrinityUikitEditor.csproj" />
+  <Folder Name="/Middleware/">
+    <Project Path="NxMiddleware/BnTxx/BnTxx.csproj" />
+    <Project Path="NxMiddleware/LayoutLibrary/LayoutLibrary.csproj" />
+    <Project Path="NxMiddleware/SarcLib/SarcLib.csproj" />
+  </Folder>
+</Solution>

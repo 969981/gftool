@@ -21,6 +21,8 @@ No dragons here!
 
 ## Develop Technical Documentation / 开发文档
 
+The **develop** branch uses **.NET 10 LTS** with `TrinityModLoader.slnx` (11 solution projects including NxMiddleware dependencies). See [migration notes](docs/DOTNET10_SLNX_MIGRATION.md).
+
 For the five-tool Windows bundle, source architecture, build and release workflow, and PokeDocs SQLite integration, see [`docs/README.md`](docs/README.md) on the **develop** branch.
 
 开发文档：[项目功能](docs/FEATURES.md) · [目录结构](docs/PROJECT_STRUCTURE.md) · [技术架构](docs/ARCHITECTURE.md) · [编译与发布](docs/BUILD_AND_RELEASE.md) · [故障排查](docs/TROUBLESHOOTING.md)。

@@ -20,15 +20,26 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
+      - name: Validate migrated SLNX solution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet --version
+          $projects = @(dotnet sln TrinityModLoader.slnx list)
+          if ($LASTEXITCODE -ne 0) { throw 'SLNX is invalid' }
+          $count = @($projects | Where-Object { $_ -match '\.csproj$' }).Count
+          if ($count -ne 11) { throw "Expected 11 solution projects, found $count" }
+          if (Test-Path TrinityModLoader.sln) { throw 'Legacy SLN must be removed' }
+          Write-Host 'Validated migrated SLNX with 11 projects'
       - name: Build solution
         shell: pwsh
         run: |
-          dotnet restore TrinityModLoader.sln
+          dotnet restore TrinityModLoader.slnx
           if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
-          dotnet build TrinityModLoader.sln -c Release --no-restore
+          dotnet build TrinityModLoader.slnx -c Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-          dotnet test TrinityModLoader.sln -c Release --no-build
+          dotnet test TrinityModLoader.slnx -c Release --no-build
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
       - name: Publish compact Windows executables and ZIPs
         shell: pwsh
@@ -53,7 +64,7 @@ jobs:
           GFTool Windows x64 portable - keep tool folders intact.
           Launch an EXE from its tool folder. External support files, if any, must remain nearby.
           TrinityModLoader, TrinityFileExplorer, TrinityModelViewer, TrinitySceneView, TrinityUikitEditor
-          Self-contained .NET 8. Source: https://github.com/969981/gftool
+          Self-contained .NET 10. Source: https://github.com/969981/gftool
           Upstream: https://github.com/pkZukan/gftool
           '@ | Set-Content -Path (Join-Path $bundle 'README.txt') -Encoding UTF8
           Compress-Archive -Path $bundle -DestinationPath (Join-Path $dist 'GFTool-Windows-x64-Portable.zip') -CompressionLevel Optimal -Force
