@@ -34,3 +34,7 @@ git commit -m "docs: update PokeDocs submodule"
 - `develop` integrates PokeDocs at `PokeDocs/`; no PokeDocs files are duplicated or modified here.
 - The Git submodule entry records an upstream commit SHA, so builds and document references are reproducible.
 - Sources: https://github.com/pkZukan/gftool and https://github.com/pkZukan/PokeDocs
+
+## Automated upstream tracking
+
+The default branch contains `.github/workflows/sync-develop.yml`. GitHub Actions runs it every 6 hours (and it can be manually dispatched from Actions). It merges the current `main` into `develop` without rewriting history, then fetches the latest `pkZukan/PokeDocs` `main` and advances the PokeDocs submodule pointer. It only pushes when something changes. Merge conflicts stop the workflow for manual resolution, rather than overwriting local work.
