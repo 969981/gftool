@@ -9,6 +9,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Data\PokeDocs.sqlite" LogicalName="TrinityFileExplorer.PokeDocs.sqlite" Condition="Exists('Data\PokeDocs.sqlite')" />
+    <EmbeddedResource Include="Data\PokeDocs.version.txt" LogicalName="TrinityFileExplorer.PokeDocs.version" Condition="Exists('Data\PokeDocs.version.txt')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
     <PackageReference Include="SharpCompress" Version="0.32.2" />
     <PackageReference Include="Tomlyn.Signed" Version="0.16.1" />
   </ItemGroup>

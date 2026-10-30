@@ -111,9 +111,14 @@ namespace Trinity.Core.Cache
             return ulong.TryParse(text, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out hash);
         }
 
+        public static Func<UInt64, string?>? ResolveAdditionalName { get; set; }
+        public static Func<UInt64, string?>? ResolveTrpakName { get; set; }
+
         public static string? GetName(UInt64 hash)
         {
             string? str = null;
+            str = ResolveAdditionalName?.Invoke(hash);
+            if (str != null) return str;
             Cache.TryGetValue(hash, out str);
             return str;
         }

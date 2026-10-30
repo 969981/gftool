@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: sync-develop-pokedocs
   cancel-in-progress: false
@@ -38,6 +39,8 @@ jobs:
           if [[ "$before" != "$after" ]]; then
             git push origin HEAD:develop
             echo 'Updated develop from main and/or PokeDocs'
+            # GITHUB_TOKEN push does not invoke other push workflows.
+            GH_TOKEN="${{ github.token }}" gh workflow run develop-portable.yml --repo "$GITHUB_REPOSITORY" --ref develop
           else
             echo 'No new upstream changes'
           fi

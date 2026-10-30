@@ -1,0 +1,108 @@
+name: Develop - PokeDocs SQLite Windows
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pokedocs-develop-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows-sqlite:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source and pinned PokeDocs submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Convert PokeDocs TXT and FBS to SQLite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tools/PokeDocsIndexer/build.py --root PokeDocs --output TrinityFileExplorer/Data/PokeDocs.sqlite --summary dist/pokedocs-index-summary.json
+          if ($LASTEXITCODE -ne 0) { throw 'PokeDocs index generation failed' }
+          git -C PokeDocs rev-parse HEAD | Set-Content -Path TrinityFileExplorer/Data/PokeDocs.version.txt -Encoding ascii
+          if (!(Test-Path 'TrinityFileExplorer/Data/PokeDocs.sqlite')) { throw 'Missing generated SQLite database' }
+          $size = (Get-Item 'TrinityFileExplorer/Data/PokeDocs.sqlite').Length
+          if ($size -lt 1000000) { throw 'Unexpectedly small SQLite database' }
+          Write-Host "SQLite generated: $size bytes"
+      - name: Install .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and test solution
+        shell: pwsh
+        run: |
+          dotnet restore TrinityModLoader.sln
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
+          dotnet build TrinityModLoader.sln -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          dotnet test TrinityModLoader.sln -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Publish File Explorer with embedded SQLite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:GITHUB_WORKSPACE 'dist/TrinityFileExplorer'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet publish TrinityFileExplorer/TrinityFileExplorer.csproj -c Release -r win-x64 --self-contained true -o $out -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
+          if (!(Test-Path (Join-Path $out 'TrinityFileExplorer.exe'))) { throw 'Missing Explorer EXE' }
+          Get-ChildItem $out -Filter '*.pdb' -Recurse -File | Remove-Item -Force
+          @'
+          Trinity File Explorer - PokeDocs offline SQLite edition
+          PokeDocs indexes are embedded in the EXE; no manual TXT import is required.
+          The database extracts to Data/PokeDocs.sqlite on the first launch.
+          Search PokeDocs SQLite under the Help menu without loading any RomFS.
+          Real game assets are not bundled. Select a matching RomFS to extract them.
+          A compatible user-supplied Oodle DLL is still required for decompression.
+          '@ | Set-Content -Path (Join-Path $out 'README.txt') -Encoding UTF8
+          Compress-Archive -Path $out -DestinationPath dist/GFTool-PokeDocs-Explorer-Windows-x64.zip -CompressionLevel Optimal -Force
+          Compress-Archive -Path TrinityFileExplorer/Data/PokeDocs.sqlite -DestinationPath dist/PokeDocs-SQLite-Standalone.zip -CompressionLevel Optimal -Force
+          $assets = @(Get-ChildItem dist -Filter '*.zip')
+          $sums = foreach ($item in $assets) {
+            $digest = (Get-FileHash $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $($item.Name)"
+          }
+          $sums | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GFTool-develop-PokeDocs-SQLite
+          path: |
+            dist/GFTool-PokeDocs-Explorer-Windows-x64.zip
+            dist/PokeDocs-SQLite-Standalone.zip
+            dist/pokedocs-index-summary.json
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Update develop-nightly release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -f develop-nightly $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Tag failed' }
+          git push --force origin refs/tags/develop-nightly
+          if ($LASTEXITCODE -ne 0) { throw 'Tag update failed' }
+          $rev = (git -C PokeDocs rev-parse --short HEAD).Trim()
+          $notes = "GFTool develop - Offline PokeDocs SQLite and Windows File Explorer. PokeDocs revision: $rev. Database is embedded in TrinityFileExplorer.exe. Launch without a RomFS to search and export hashes, symbols and FBS. Game resources are not distributed. Download the standalone SQLite ZIP to inspect externally."
+          gh release view develop-nightly --repo $env:GITHUB_REPOSITORY --json name --jq .name 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create develop-nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Develop - PokeDocs SQLite' --notes $notes --prerelease
+          } else {
+            gh release edit develop-nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Develop - PokeDocs SQLite' --notes $notes --prerelease
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release update failed' }
+          $assets = @('dist/GFTool-PokeDocs-Explorer-Windows-x64.zip','dist/PokeDocs-SQLite-Standalone.zip','dist/pokedocs-index-summary.json','dist/SHA256SUMS.txt')
+          gh release upload develop-nightly @assets --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

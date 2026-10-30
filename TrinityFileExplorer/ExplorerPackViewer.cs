@@ -106,7 +106,7 @@ namespace TrinityFileExplorer
             for (int i = 0; i < pack.FileEntry.Length; i++)
             {
                 var hash = pack.FileHashes[i];
-                var fileName = GFPakHashCache.GetName(hash);
+                var fileName = GFPakHashCache.ResolveTrpakName?.Invoke(hash) ?? GFPakHashCache.GetName(hash);
                 string? fileType = "unknown";
                
                 if (fileName != null) {

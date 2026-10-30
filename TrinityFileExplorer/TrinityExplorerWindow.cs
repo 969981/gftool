@@ -17,6 +17,8 @@ namespace TrinityFileExplorer
         public FileSystem? fileSystem = null;
 
         private bool hasOodleDll = false;
+        private PokeDocsStore? pokeDocsStore;
+        private string selectedPokeDocsGame = "SV";
         private bool exportable = false;
 
         private IExplorerViewer activeViewer;
@@ -30,6 +32,7 @@ namespace TrinityFileExplorer
         public TrinityExplorerWindow()
         {
             InitializeComponent();
+            InitializePokeDocs();
             InitializeModelViewerIntegration();
             InitializeSettings();
             InitializeCache();
@@ -122,24 +125,7 @@ namespace TrinityFileExplorer
         private void InitializeSettings()
         {
             ExplorerSettings.Open();
-
-            var romfsDir = ExplorerSettings.GetRomFSPath();
-
-            if (romfsDir != "" && Directory.Exists(romfsDir))
-            {
-                return;
-            }
-
-            MessageBox.Show("Please set your RomFS path.", "Missing RomFS");
-
-            var folderBrowser = new FolderBrowserDialog();
-            if (folderBrowser.ShowDialog() != DialogResult.OK)
-            {
-                NoValidRomFS();
-            }
-
-            ExplorerSettings.SetRomFSPath(folderBrowser.SelectedPath);
-            ExplorerSettings.Save();
+            // PokeDocs can be queried offline with no game data selected.
         }
 
         public void InitializeExplorer()
@@ -147,15 +133,25 @@ namespace TrinityFileExplorer
             explorerFileViewer.Disable();
             explorerPackViewer.Disable();
 
+            var currentRomfs = ExplorerSettings.GetRomFSPath();
+            if (string.IsNullOrWhiteSpace(currentRomfs)
+                || !File.Exists(Path.Join(currentRomfs, FilepathSettings.trpfdRel))
+                || !File.Exists(Path.Join(currentRomfs, FilepathSettings.trpfsRel)))
+            {
+                Text = "Trinity File Explorer - Offline PokeDocs Search (open a RomFS for extraction)";
+                exportable = false;
+                activeViewer = explorerFileViewer;
+                return;
+            }
 
             if (InitializeFileDescriptor(Path.Join(ExplorerSettings.GetRomFSPath(), FilepathSettings.trpfdRel)) != DialogResult.OK)
             {
-                NoValidRomFS();
+                return;
             }
 
             if (InitializeFileSystem(Path.Join(ExplorerSettings.GetRomFSPath(), FilepathSettings.trpfsRel)) != DialogResult.OK)
             {
-                NoValidRomFS();
+                return;
             }
 
             Text = $"Trinity Explorer - Viewing ROMFS - {ExplorerSettings.GetRomFSPath()}";
@@ -264,27 +260,84 @@ namespace TrinityFileExplorer
             Environment.Exit(0);
         }
 
+        private void InitializePokeDocs()
+        {
+            try
+            {
+                pokeDocsStore = PokeDocsStore.OpenEmbedded();
+                GFPakHashCache.ResolveAdditionalName = hash =>
+                    pokeDocsStore.ResolveName(selectedPokeDocsGame, "fd", hash)
+                    ?? pokeDocsStore.ResolveName(selectedPokeDocsGame, "trpak", hash);
+                GFPakHashCache.ResolveTrpakName = hash =>
+                    pokeDocsStore.ResolveName(selectedPokeDocsGame, "trpak", hash);
+            }
+            catch (Exception ex)
+            {
+                // The GUI still supports legacy workflows and manually selected RomFS.
+                Trace.WriteLine($"PokeDocs database unavailable: {ex}");
+            }
+
+            var search = new ToolStripMenuItem("Search PokeDocs SQLite...");
+            search.Click += (_, _) =>
+            {
+                if (pokeDocsStore == null)
+                {
+                    MessageBox.Show("Bundled PokeDocs.sqlite is missing. Use the develop Windows release or generate the index before building.", "PokeDocs");
+                    return;
+                }
+                using var dialog = new PokeDocsSearchWindow(pokeDocsStore, selectedPokeDocsGame,
+                    TryExportSelectedResources, newGame =>
+                    {
+                        selectedPokeDocsGame = newGame;
+                        if (fileDescriptor != null)
+                        {
+                            explorerFileViewer.ParseFileDescriptor(fileDescriptor);
+                            explorerPackViewer.ParseFileDescriptor(fileDescriptor);
+                        }
+                    });
+                dialog.ShowDialog(this);
+            };
+            helpToolStripMenuItem.DropDownItems.Insert(0, search);
+        }
+
+        private bool TryExportSelectedResources(string game, IReadOnlyCollection<ulong> hashes, string outputFolder)
+        {
+            if (!string.Equals(game, selectedPokeDocsGame, StringComparison.Ordinal))
+                return false;
+            if (fileDescriptor == null || fileSystem == null || !hasOodleDll)
+            {
+                MessageBox.Show("Select a matching RomFS and supply your own oo2core_8_win64.dll before extracting game assets.", "No game data");
+                return false;
+            }
+            try
+            {
+                var present = hashes.Where(h => Array.IndexOf(fileDescriptor.FileHashes, h) >= 0
+                        || Array.IndexOf(fileDescriptor.UnusedHashes ?? Array.Empty<ulong>(), h) >= 0)
+                    .Distinct().ToArray();
+                if (present.Length == 0)
+                {
+                    MessageBox.Show("No selected hashes were found in the currently loaded RomFS.");
+                    return false;
+                }
+                using var progress = new ExportProgressWindow(fileDescriptor, fileSystem);
+                progress.Show(this);
+                bool success = progress.SaveFiles(present, outputFolder);
+                progress.Close();
+                if (present.Length != hashes.Count)
+                    MessageBox.Show($"Found {present.Length} of {hashes.Count} selected hash(es) in the loaded RomFS.");
+                return success;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Resource extraction failed: {ex.Message}", "PokeDocs");
+                return false;
+            }
+        }
+
         private void InitializeCache()
         {
-            if (!File.Exists("GFPAKHashCache.bin"))
-            {
-                DialogResult dialogResult = MessageBox.Show("No GFPAKHashCache.bin found, do you want to create one?", "Missing Files", MessageBoxButtons.YesNo);
-
-                if (dialogResult == DialogResult.Yes)
-                {
-                    FetchHashesFromURL();
-                }
-                else
-                {
-                    GFPakHashCache.Clear();
-                    GFPakHashCache.Save();
-                    MessageBox.Show($"Empty GFPAKHashCache.bin created. ({GFPakHashCache.Count} entries)", "Hash Cache", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-            }
-            else
-            {
-                GFPakHashCache.Open();
-            }
+            if (File.Exists("GFPAKHashCache.bin")) GFPakHashCache.Open();
+            else GFPakHashCache.Clear();
         }
 
         private static readonly string[] DefaultHashlistUrls =
@@ -359,8 +412,8 @@ namespace TrinityFileExplorer
         {
             hasOodleDll = File.Exists("oo2core_8_win64.dll");
 
-            if (!hasOodleDll)
-                MessageBox.Show("LibOodle (oo2core_8_win64.dll) is missing.\nExporting from TRPFS is disabled.");
+            if (!hasOodleDll && !string.IsNullOrWhiteSpace(ExplorerSettings.GetRomFSPath()))
+                Trace.WriteLine("Oodle DLL not found; binary exports will be disabled.");
         }
 
         private void UpdateCounts()

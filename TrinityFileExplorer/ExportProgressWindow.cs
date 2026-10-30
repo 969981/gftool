@@ -93,7 +93,7 @@ namespace TrinityFileExplorer
                     continue;
                 }
 
-                var fileName = GFPakHashCache.GetName(hash);
+                var fileName = GFPakHashCache.ResolveTrpakName?.Invoke(hash) ?? GFPakHashCache.GetName(hash);
                 fileName ??= hash.ToString("X16") + ".bin";
                 var filepath = string.Format("{0}\\{1}", outFolder, fileName);
 

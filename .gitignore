@@ -348,3 +348,8 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# Generated PokeDocs SQLite artifacts (built by CI from the pinned submodule)
+TrinityFileExplorer/Data/PokeDocs.sqlite
+TrinityFileExplorer/Data/PokeDocs.version.txt
+dist/pokedocs-index-summary.json
