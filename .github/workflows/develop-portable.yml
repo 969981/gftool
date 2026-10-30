@@ -1,13 +1,17 @@
-name: Develop - PokeDocs SQLite Windows
+name: Develop - PokeDocs SQLite Five-Tool Bundle
+
 on:
   push:
     branches: [develop]
   workflow_dispatch:
+
 permissions:
   contents: write
+
 concurrency:
   group: pokedocs-develop-${{ github.ref }}
   cancel-in-progress: false
+
 jobs:
   windows-sqlite:
     runs-on: windows-latest
@@ -17,72 +21,138 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Convert PokeDocs TXT and FBS to SQLite
+
+      - name: Convert upstream TXT and FBS to one shared SQLite database
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python tools/PokeDocsIndexer/build.py --root PokeDocs --output TrinityFileExplorer/Data/PokeDocs.sqlite --summary dist/pokedocs-index-summary.json
-          if ($LASTEXITCODE -ne 0) { throw 'PokeDocs index generation failed' }
-          git -C PokeDocs rev-parse HEAD | Set-Content -Path TrinityFileExplorer/Data/PokeDocs.version.txt -Encoding ascii
-          if (!(Test-Path 'TrinityFileExplorer/Data/PokeDocs.sqlite')) { throw 'Missing generated SQLite database' }
-          $size = (Get-Item 'TrinityFileExplorer/Data/PokeDocs.sqlite').Length
-          if ($size -lt 1000000) { throw 'Unexpectedly small SQLite database' }
-          Write-Host "SQLite generated: $size bytes"
+          $bundle = Join-Path $env:GITHUB_WORKSPACE 'dist/GFTool-Windows-x64'
+          $data = Join-Path $bundle 'Data'
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          $db = Join-Path $data 'PokeDocs.sqlite'
+          python tools/PokeDocsIndexer/build.py --root PokeDocs --output $db --summary dist/pokedocs-index-summary.json
+          if ($LASTEXITCODE -ne 0) { throw 'PokeDocs index conversion failed' }
+          git -C PokeDocs rev-parse HEAD | Set-Content -Path (Join-Path $data 'PokeDocs.version.txt') -Encoding ascii
+          if (!(Test-Path $db) -or (Get-Item $db).Length -lt 1000000) { throw 'Database is missing or unexpectedly small' }
+
+          @'
+          import sqlite3, sys
+          c = sqlite3.connect(f'file:{sys.argv[1]}?mode=ro', uri=True)
+          assert c.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+          rows = c.execute('SELECT COUNT(*) FROM hash_entries').fetchone()[0]
+          assert rows >= 1000000, f'too few rows: {rows}'
+          for game in ('SV','ZA'):
+              for scope in ('fd','trpak'):
+                  count = c.execute('SELECT COUNT(*) FROM hash_entries WHERE game=? AND scope=?', (game, scope)).fetchone()[0]
+                  assert count >= 1000, f'{game}/{scope} unexpectedly empty: {count}'
+                  print(f'{game}/{scope}: {count:,} hashes')
+          print(f'Database integrity OK: {rows:,} total hash records')
+          '@ | python - $db
+          if ($LASTEXITCODE -ne 0) { throw 'SQLite semantic smoke test failed' }
+
       - name: Install .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Build and test solution
+
+      - name: Restore build and test all tools
         shell: pwsh
         run: |
           dotnet restore TrinityModLoader.sln
           if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
           dotnet build TrinityModLoader.sln -c Release --no-restore
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-          dotnet test TrinityModLoader.sln -c Release --no-build
+          dotnet test TrinityModLoader.sln -c Release --no-build --verbosity minimal
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
-      - name: Publish File Explorer with embedded SQLite
+
+      - name: Publish five self-contained Windows x64 tools
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $out = Join-Path $env:GITHUB_WORKSPACE 'dist/TrinityFileExplorer'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          dotnet publish TrinityFileExplorer/TrinityFileExplorer.csproj -c Release -r win-x64 --self-contained true -o $out -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
-          if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
-          if (!(Test-Path (Join-Path $out 'TrinityFileExplorer.exe'))) { throw 'Missing Explorer EXE' }
-          Get-ChildItem $out -Filter '*.pdb' -Recurse -File | Remove-Item -Force
-          @'
-          Trinity File Explorer - PokeDocs offline SQLite edition
-          PokeDocs indexes are embedded in the EXE; no manual TXT import is required.
-          The database extracts to Data/PokeDocs.sqlite on the first launch.
-          Search PokeDocs SQLite under the Help menu without loading any RomFS.
-          Real game assets are not bundled. Select a matching RomFS to extract them.
-          A compatible user-supplied Oodle DLL is still required for decompression.
-          '@ | Set-Content -Path (Join-Path $out 'README.txt') -Encoding UTF8
-          Compress-Archive -Path $out -DestinationPath dist/GFTool-PokeDocs-Explorer-Windows-x64.zip -CompressionLevel Optimal -Force
-          Compress-Archive -Path TrinityFileExplorer/Data/PokeDocs.sqlite -DestinationPath dist/PokeDocs-SQLite-Standalone.zip -CompressionLevel Optimal -Force
-          $assets = @(Get-ChildItem dist -Filter '*.zip')
-          $sums = foreach ($item in $assets) {
-            $digest = (Get-FileHash $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$digest  $($item.Name)"
+          $apps = @('TrinityModLoader', 'TrinityFileExplorer', 'TrinityModelViewer', 'TrinitySceneView', 'TrinityUikitEditor')
+          $bundle = Join-Path $env:GITHUB_WORKSPACE 'dist/GFTool-Windows-x64'
+          foreach ($app in $apps) {
+            $out = Join-Path $bundle $app
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            dotnet publish "$app/$app.csproj" -c Release -r win-x64 --self-contained true -o $out -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
+            if ($LASTEXITCODE -ne 0) { throw "Publishing $app failed" }
+            if (!(Test-Path (Join-Path $out "$app.exe"))) { throw "$app executable missing" }
+            Get-ChildItem -Path $out -Filter '*.pdb' -File -Recurse | Remove-Item -Force
+            if ((Get-ChildItem -Path $out -Filter 'PokeDocs.sqlite' -File -Recurse).Count -ne 0) {
+              throw "Database duplicated in $app folder"
+            }
+            Write-Host "$app publish successful"
           }
-          $sums | Set-Content dist/SHA256SUMS.txt -Encoding ascii
-      - name: Upload build artifacts
+          Copy-Item 'LICENSE' (Join-Path $bundle 'LICENSE.txt')
+          $readme = @(
+            'GFTool Develop Windows x64 - five portable tools and one shared PokeDocs.sqlite database'
+            'Run any EXE from its own tool directory. Keep the Data directory next to the five folders.'
+            'Data/PokeDocs.sqlite contains the offline hash index (no manual TXT import required).'
+            'The shared database is located via GFTool.Core from any tool folder.'
+            'Trinity File Explorer currently provides the PokeDocs search and export UI.'
+            'Other tools can use the shared database via GFTool.Core; their own search UI is not yet integrated.'
+            'Real game assets such as .trmdl and .trpak are not bundled; choose your own RomFS/files.'
+            'For actual decompression, provide your own compatible Oodle library.'
+            'Source: https://github.com/969981/gftool/tree/develop'
+          )
+          $readme | Set-Content -Path (Join-Path $bundle 'README.txt') -Encoding UTF8
+
+          $sharedDatabases = @(Get-ChildItem -Path $bundle -Filter 'PokeDocs.sqlite' -File -Recurse)
+          if ($sharedDatabases.Count -ne 1 -or $sharedDatabases[0].FullName -ne (Join-Path $bundle 'Data/PokeDocs.sqlite')) {
+            throw "Bundle must contain exactly one shared Data/PokeDocs.sqlite"
+          }
+
+      - name: Package and verify portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = Join-Path $env:GITHUB_WORKSPACE 'dist/GFTool-Windows-x64'
+          $integrated = Join-Path $env:GITHUB_WORKSPACE 'dist/GFTool-Develop-Windows-x64-Portable.zip'
+          Compress-Archive -Path $bundle -DestinationPath $integrated -CompressionLevel Optimal -Force
+          $data = Join-Path $bundle 'Data/PokeDocs.sqlite'
+          Compress-Archive -Path $data -DestinationPath dist/PokeDocs-SQLite-Standalone.zip -CompressionLevel Optimal -Force
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($integrated)
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\','/') })
+            $dbEntries = @($entries | Where-Object { $_ -like '*/PokeDocs.sqlite' })
+            if ($dbEntries.Count -ne 1 -or $dbEntries[0] -ne 'GFTool-Windows-x64/Data/PokeDocs.sqlite') {
+              throw "Expected exactly one shared database inside bundle. Found: $($dbEntries -join ', ')"
+            }
+            foreach ($app in @('TrinityModLoader','TrinityFileExplorer','TrinityModelViewer','TrinitySceneView','TrinityUikitEditor')) {
+              $expected = "GFTool-Windows-x64/$app/$app.exe"
+              if ($expected -notin $entries) { throw "Missing EXE in ZIP: $expected" }
+            }
+            Write-Host "Archive verified: five EXEs and one shared SQLite file"
+          }
+          finally { $archive.Dispose() }
+          $checksums = @()
+          foreach ($file in (Get-ChildItem dist -Filter '*.zip' -File | Sort-Object Name)) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $checksums += "$hash  $($file.Name)"
+          }
+          $checksums | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Get-ChildItem dist -Filter '*.zip' | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Upload validated build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GFTool-develop-PokeDocs-SQLite
+          name: GFTool-develop-FiveTools-SharedSQLite
           path: |
-            dist/GFTool-PokeDocs-Explorer-Windows-x64.zip
+            dist/GFTool-Develop-Windows-x64-Portable.zip
             dist/PokeDocs-SQLite-Standalone.zip
             dist/pokedocs-index-summary.json
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
-      - name: Update develop-nightly release
+
+      - name: Replace develop-nightly Release assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,18 +161,29 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git tag -f develop-nightly $env:GITHUB_SHA
-          if ($LASTEXITCODE -ne 0) { throw 'Tag failed' }
-          git push --force origin refs/tags/develop-nightly
           if ($LASTEXITCODE -ne 0) { throw 'Tag update failed' }
-          $rev = (git -C PokeDocs rev-parse --short HEAD).Trim()
-          $notes = "GFTool develop - Offline PokeDocs SQLite and Windows File Explorer. PokeDocs revision: $rev. Database is embedded in TrinityFileExplorer.exe. Launch without a RomFS to search and export hashes, symbols and FBS. Game resources are not distributed. Download the standalone SQLite ZIP to inspect externally."
+          git push --force origin refs/tags/develop-nightly
+          if ($LASTEXITCODE -ne 0) { throw 'Tag push failed' }
+          $revision = (git -C PokeDocs rev-parse --short HEAD).Trim()
+          $notes = "Windows x64: all five GFTool apps with ONE shared Data/PokeDocs.sqlite, no duplicate database in any EXE or app directory. PokeDocs revision: $revision. File Explorer offers offline PokeDocs search and export; the other apps have the shared GFTool.Core locator. Game resources and Oodle are user-supplied."
           gh release view develop-nightly --repo $env:GITHUB_REPOSITORY --json name --jq .name 2>$null | Out-Null
           if ($LASTEXITCODE -ne 0) {
-            gh release create develop-nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Develop - PokeDocs SQLite' --notes $notes --prerelease
+            gh release create develop-nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Develop - 5 Tools + Shared PokeDocs SQLite' --notes $notes --prerelease
           } else {
-            gh release edit develop-nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Develop - PokeDocs SQLite' --notes $notes --prerelease
+            gh release edit develop-nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Develop - 5 Tools + Shared PokeDocs SQLite' --notes $notes --prerelease
           }
-          if ($LASTEXITCODE -ne 0) { throw 'Release update failed' }
-          $assets = @('dist/GFTool-PokeDocs-Explorer-Windows-x64.zip','dist/PokeDocs-SQLite-Standalone.zip','dist/pokedocs-index-summary.json','dist/SHA256SUMS.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Release edit failed' }
+
+          # Remove stale Explorer-only assets so users cannot mistake old releases for the five-tool bundle.
+          $stale = @('GFTool-PokeDocs-Explorer-Windows-x64.zip')
+          $allAssets = gh release view develop-nightly --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name'
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset inventory failed' }
+          foreach ($name in $stale) {
+            if ($name -in $allAssets) {
+              gh release delete-asset develop-nightly $name --repo $env:GITHUB_REPOSITORY --yes
+              if ($LASTEXITCODE -ne 0) { throw "Failed to remove stale asset $name" }
+            }
+          }
+          $assets = @('dist/GFTool-Develop-Windows-x64-Portable.zip','dist/PokeDocs-SQLite-Standalone.zip','dist/pokedocs-index-summary.json','dist/SHA256SUMS.txt')
           gh release upload develop-nightly @assets --repo $env:GITHUB_REPOSITORY --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }

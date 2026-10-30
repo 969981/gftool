@@ -1,5 +1,5 @@
 using Microsoft.Data.Sqlite;
-using System.Reflection;
+using Trinity.Core.Cache;
 
 namespace TrinityFileExplorer;
 
@@ -12,36 +12,10 @@ public sealed class PokeDocsStore
     private readonly object gate = new();
     private PokeDocsStore(string filename) => path = filename;
 
-    public static PokeDocsStore OpenEmbedded()
+    /// <summary>Open the single shared SQLite file, not an embedded EXE resource.</summary>
+    public static PokeDocsStore OpenShared()
     {
-        var directory = Path.Combine(AppContext.BaseDirectory, "Data");
-        Directory.CreateDirectory(directory);
-        var database = Path.Combine(directory, "PokeDocs.sqlite");
-        var installedVersion = Path.Combine(directory, "PokeDocs.version.txt");
-        var assembly = typeof(PokeDocsStore).Assembly;
-        using var versionResource = assembly.GetManifestResourceStream("TrinityFileExplorer.PokeDocs.version");
-        using var versionReader = versionResource == null ? null : new StreamReader(versionResource);
-        var version = versionReader?.ReadToEnd().Trim();
-        bool needsUpdate = !File.Exists(database)
-            || (version != null && (!File.Exists(installedVersion) || File.ReadAllText(installedVersion).Trim() != version));
-        if (needsUpdate)
-        {
-            using var embedded = assembly.GetManifestResourceStream("TrinityFileExplorer.PokeDocs.sqlite")
-                ?? throw new FileNotFoundException("PokeDocs database was not bundled. Use a develop portable release, or build the database with tools/PokeDocsIndexer/build.py.");
-            var temp = database + ".new";
-            try
-            {
-                using (var dest = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-                    embedded.CopyTo(dest);
-                File.Move(temp, database, true);
-                if (version != null) File.WriteAllText(installedVersion, version);
-            }
-            finally
-            {
-                if (File.Exists(temp)) File.Delete(temp);
-            }
-        }
-
+        string database = PokeDocsDatabaseLocator.LocateOrThrow();
         var result = new PokeDocsStore(database);
         using var conn = result.Connect();
         using var cmd = conn.CreateCommand();

@@ -264,7 +264,7 @@ namespace TrinityFileExplorer
         {
             try
             {
-                pokeDocsStore = PokeDocsStore.OpenEmbedded();
+                pokeDocsStore = PokeDocsStore.OpenShared();
                 GFPakHashCache.ResolveAdditionalName = hash =>
                     pokeDocsStore.ResolveName(selectedPokeDocsGame, "fd", hash)
                     ?? pokeDocsStore.ResolveName(selectedPokeDocsGame, "trpak", hash);
@@ -282,7 +282,7 @@ namespace TrinityFileExplorer
             {
                 if (pokeDocsStore == null)
                 {
-                    MessageBox.Show("Bundled PokeDocs.sqlite is missing. Use the develop Windows release or generate the index before building.", "PokeDocs");
+                    MessageBox.Show("Shared Data/PokeDocs.sqlite was not found. Keep the Data folder beside the five app directories, or set GFTOOL_POKEDOCS_DB.", "PokeDocs");
                     return;
                 }
                 using var dialog = new PokeDocsSearchWindow(pokeDocsStore, selectedPokeDocsGame,
