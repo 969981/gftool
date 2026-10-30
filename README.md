@@ -18,6 +18,15 @@ A work in progress utility to view and modify Trinity scenes and object template
 ### Trinity UIKit Editor
 No dragons here!
 
+
+## Develop Technical Documentation / 开发文档
+
+For the five-tool Windows bundle, source architecture, build and release workflow, and PokeDocs SQLite integration, see [`docs/README.md`](docs/README.md) on the **develop** branch.
+
+开发文档：[项目功能](docs/FEATURES.md) · [目录结构](docs/PROJECT_STRUCTURE.md) · [技术架构](docs/ARCHITECTURE.md) · [编译与发布](docs/BUILD_AND_RELEASE.md) · [故障排查](docs/TROUBLESHOOTING.md)。
+
+The `develop-nightly` release contains five independent tools and one shared `Data/PokeDocs.sqlite`. Only Trinity File Explorer currently has a built-in SQLite search UI.
+
 ## Source Code
 The canonical repository for GFTool.Core which provies serializers for Trinity files can be found at [https://github.com/pkZukan/gftool/](https://github.com/pkZukan/gftool/).
 
