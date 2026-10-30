@@ -1,3 +1,7 @@
 [submodule "NxMiddleware"]
 	path = NxMiddleware
 	url = https://github.com/Reisyukaku/NxMiddleware
+[submodule "PokeDocs"]
+	path = PokeDocs
+	url = https://github.com/pkZukan/PokeDocs.git
+	branch = main
