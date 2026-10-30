@@ -1,0 +1,43 @@
+name: Sync Develop and PokeDocs
+on:
+  schedule:
+    - cron: '47 */6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sync-develop-pokedocs
+  cancel-in-progress: false
+jobs:
+  update-develop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout develop and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: true
+      - name: Merge main and update upstream PokeDocs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          before="$(git rev-parse HEAD)"
+          git fetch origin main
+          git merge --no-edit origin/main
+          git submodule sync --recursive
+          git submodule update --init --remote PokeDocs
+          git add PokeDocs
+          if ! git diff --cached --quiet; then
+            git commit -m 'docs: update PokeDocs from upstream main'
+          fi
+          after="$(git rev-parse HEAD)"
+          if [[ "$before" != "$after" ]]; then
+            git push origin HEAD:develop
+            echo 'Updated develop from main and/or PokeDocs'
+          else
+            echo 'No new upstream changes'
+          fi
