@@ -1,4 +1,5 @@
 using BnTxx;
+using System.Drawing;
 using GFTool.Core.Utils;
 using GFTool.Renderer.Core;
 using OpenTK.Graphics.OpenGL4;
@@ -74,27 +75,53 @@ namespace GFTool.Renderer.Scene.GraphicsObjects
                 return;
             }
 
-            TexturePixels? pixels = null;
+            Bitmap? bitmap = null;
             try
             {
-                if (TryGetResolvedSourcePath(out var source)) pixels = BNTX.LoadFromFile(source, preferredName);
+                if (TryGetResolvedSourcePath(out var source)) bitmap = BNTX.LoadFromFile(source, preferredName);
             }
             catch (Exception ex)
             {
                 MessageHandler.Instance.AddMessage(MessageType.WARNING, $"Failed to decode texture {SourceFile}: {ex.Message}");
             }
-            if (pixels == null)
+            if (bitmap == null)
             {
-                pixels = new TexturePixels(32, 32, new byte[32 * 32 * 4]);
+                bitmap = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 MessageHandler.Instance.AddMessage(MessageType.WARNING, $"Failed to load texture: {SourceFile}");
             }
-            if (pixels.Width <= 0 || pixels.Height <= 0 || pixels.Bgra.LongLength != (long)pixels.Width * pixels.Height * 4)
+
+            if (bitmap.Width <= 0 || bitmap.Height <= 0)
                 throw new InvalidDataException($"Invalid decoded pixels for {SourceFile}");
 
             int id = GL.GenTexture();
-            GL.BindTexture(TextureTarget.Texture2D, id);
-            GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, pixels.Width, pixels.Height,
-                0, PixelFormat.Bgra, PixelType.UnsignedByte, pixels.Bgra);
+            try
+            {
+                using (bitmap)
+                using (var upload = new Bitmap(bitmap.Width, bitmap.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+                {
+                    using (var graphics = Graphics.FromImage(upload))
+                        graphics.DrawImageUnscaled(bitmap, 0, 0);
+
+                    var rect = new Rectangle(0, 0, upload.Width, upload.Height);
+                    var bits = upload.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                        System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    try
+                    {
+                        GL.BindTexture(TextureTarget.Texture2D, id);
+                        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                            upload.Width, upload.Height, 0, PixelFormat.Bgra, PixelType.UnsignedByte, bits.Scan0);
+                    }
+                    finally
+                    {
+                        upload.UnlockBits(bits);
+                    }
+                }
+            }
+            catch
+            {
+                GL.DeleteTexture(id);
+                throw;
+            }
 
             // Set texture parameters
             GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
