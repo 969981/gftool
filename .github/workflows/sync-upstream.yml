@@ -1,0 +1,44 @@
+name: Sync Upstream Main
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: upstream-sync-main
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Merge upstream main safely
+        id: merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/pkZukan/gftool.git
+          git fetch upstream main
+          before="$(git rev-parse HEAD)"
+          git merge --no-edit upstream/main
+          after="$(git rev-parse HEAD)"
+          if [[ "$before" != "$after" ]]; then
+            git push origin HEAD:main
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'Already synchronized.'
+          fi
+      - name: Trigger release on upstream changes
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run dotnet-desktop.yml --repo "$GITHUB_REPOSITORY" --ref main

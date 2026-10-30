@@ -1,115 +1,100 @@
-name: .NET
+name: Windows Portable Build and Release
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  build:
+  windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        fetch-depth: 0
-    
-    - name: Initialize submodules
-      run: |
-        git submodule update --init --recursive
-        git submodule status
-    
-    - name: Verify NxMiddleware
-      run: |
-        if (Test-Path NxMiddleware) { 
-          Write-Host "NxMiddleware found"
-          dir NxMiddleware -Recurse -Directory
-        } else { 
-          Write-Host "ERROR: NxMiddleware not found"
-          exit 1
-        }
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: 8.0.x
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Build
-      run: dotnet build --no-restore --configuration Release
-    
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
-    
-    - name: Zip TrinityModLoader
-      uses: papeloto/action-zip@v1
-      with:
-        files: TrinityModLoader/bin/Release/net8.0-windows7.0
-        dest: TrinityModLoader/bin/Release/TrinityModLoader.zip
-    
-    - name: Zip TrinityFileExplorer
-      uses: papeloto/action-zip@v1
-      with:
-        files: TrinityFileExplorer/bin/Release/net8.0-windows
-        dest: TrinityFileExplorer/bin/Release/TrinityFileExplorer.zip
-    
-    - name: Zip TrinityModelViewer
-      uses: papeloto/action-zip@v1
-      with:
-        files: TrinityModelViewer/bin/Release/net8.0-windows7.0
-        dest: TrinityModelViewer/bin/Release/TrinityModelViewer.zip
-
-    - name: Zip TrinitySceneViewer
-      uses: papeloto/action-zip@v1
-      with:
-        files: TrinitySceneView/bin/Release/net8.0-windows7.0
-        dest: TrinitySceneView/bin/Release/TrinitySceneViewer.zip
-    
-    - name: Update TrinityModLoader nightly release
-      uses: WebFreak001/deploy-nightly@v1.1.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: https://uploads.github.com/repos/pkZukan/gftool/releases/84790057/assets{?name,label}
-        release_id: 84790057
-        asset_path: TrinityModLoader/bin/Release/TrinityModLoader.zip
-        asset_name: TrinityModLoader-nightly-$$.zip
-        asset_content_type: application/zip
-        max_releases: 1
-    
-    - name: Update TrinityFileExplorer nightly release
-      uses: WebFreak001/deploy-nightly@v1.1.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: https://uploads.github.com/repos/pkZukan/gftool/releases/84790057/assets{?name,label}
-        release_id: 84790057
-        asset_path: TrinityFileExplorer/bin/Release/TrinityFileExplorer.zip
-        asset_name: TrinityFileExplorer-nightly-$$.zip
-        asset_content_type: application/zip
-        max_releases: 1
-    
-    - name: Update TrinityModelViewer nightly release
-      uses: WebFreak001/deploy-nightly@v1.1.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: https://uploads.github.com/repos/pkZukan/gftool/releases/84790057/assets{?name,label}
-        release_id: 84790057
-        asset_path: TrinityModelViewer/bin/Release/TrinityModelViewer.zip
-        asset_name: TrinityModelViewer-nightly-$$.zip
-        asset_content_type: application/zip
-        max_releases: 1
-
-    - name: Update TrinitySceneViewer nightly release
-      uses: WebFreak001/deploy-nightly@v1.1.0
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: https://uploads.github.com/repos/pkZukan/gftool/releases/84790057/assets{?name,label}
-        release_id: 84790057
-        asset_path: TrinitySceneView/bin/Release/TrinitySceneViewer.zip
-        asset_name: TrinitySceneViewer-nightly-$$.zip
-        asset_content_type: application/zip
-        max_releases: 1
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build solution
+        shell: pwsh
+        run: |
+          dotnet restore TrinityModLoader.sln
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
+          dotnet build TrinityModLoader.sln -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          dotnet test TrinityModLoader.sln -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Publish compact Windows executables and ZIPs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $apps = @('TrinityModLoader','TrinityFileExplorer','TrinityModelViewer','TrinitySceneView','TrinityUikitEditor')
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          $bundle = Join-Path $dist 'GFTool-Windows-x64'
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          foreach ($app in $apps) {
+            $project = Join-Path $app "$app.csproj"
+            $out = Join-Path $bundle $app
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            dotnet publish $project -c Release -r win-x64 --self-contained true -o $out -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false
+            if ($LASTEXITCODE -ne 0) { throw "Publish failed: $app" }
+            if (-not (Test-Path (Join-Path $out "$app.exe"))) { throw "Missing EXE for $app" }
+            Get-ChildItem -Path $out -Filter '*.pdb' -File -Recurse | Remove-Item -Force
+            Compress-Archive -Path $out -DestinationPath (Join-Path $dist "$app-Windows-x64-Portable.zip") -CompressionLevel Optimal -Force
+          }
+          Copy-Item LICENSE (Join-Path $bundle 'LICENSE.txt')
+          @'
+          GFTool Windows x64 portable - keep tool folders intact.
+          Launch an EXE from its tool folder. External support files, if any, must remain nearby.
+          TrinityModLoader, TrinityFileExplorer, TrinityModelViewer, TrinitySceneView, TrinityUikitEditor
+          Self-contained .NET 8. Source: https://github.com/969981/gftool
+          Upstream: https://github.com/pkZukan/gftool
+          '@ | Set-Content -Path (Join-Path $bundle 'README.txt') -Encoding UTF8
+          Compress-Archive -Path $bundle -DestinationPath (Join-Path $dist 'GFTool-Windows-x64-Portable.zip') -CompressionLevel Optimal -Force
+          $sums = @()
+          foreach ($file in (Get-ChildItem $dist -Filter '*.zip' -File | Sort-Object Name)) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sums += "$hash  $($file.Name)"
+          }
+          $sums | Set-Content (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GFTool-Windows-x64
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Update repository Nightly release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $short = $env:GITHUB_SHA.Substring(0, 12)
+          $notes = "Self-contained Windows x64 tools built from main at $short. Download the all-in-one GFTool-Windows-x64-Portable.zip or one tool ZIP. See SHA256SUMS.txt. Upstream: https://github.com/pkZukan/gftool"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -f nightly $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Tag failed' }
+          git push -f origin refs/tags/nightly
+          if ($LASTEXITCODE -ne 0) { throw 'Tag push failed' }
+          gh release view nightly --repo $env:GITHUB_REPOSITORY --json name --jq .name 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Windows Nightly' --notes $notes --prerelease
+          } else {
+            gh release edit nightly --repo $env:GITHUB_REPOSITORY --title 'GFTool Windows Nightly' --notes $notes --prerelease
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release update failed' }
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          $assets = @(Get-ChildItem $dist -Filter '*.zip' -File | ForEach-Object FullName)
+          $assets += (Join-Path $dist 'SHA256SUMS.txt')
+          gh release upload nightly @assets --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Upload failed' }
